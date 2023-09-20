@@ -230,7 +230,7 @@ def test(epoch, tset='test'):
     tdecs = []
     transcrs = []
     for (img, transcr) in loader:
-        img = Variable(img.cuda(gpu_id))
+        img = img.cuda(gpu_id)
         with torch.no_grad():
             o = net(img)
         tdec = o.argmax(2).permute(1, 0).cpu().numpy().squeeze()
