@@ -3,9 +3,9 @@ import numpy as np
 from skimage import io as img_io
 import torch
 from torch.utils.data import Dataset
-from os.path import isfile
 from skimage.transform import resize
-from utils.auxilary_functions import image_resize, centered
+from utils.auxiliary_functions import image_resize, centered
+from pathlib import Path
 import tqdm
 
 #import sys
@@ -50,8 +50,11 @@ class WordLineDataset(Dataset):
             for line in open(self.stopwords_path):
                 self.stopwords.append(line.strip().split(','))
             self.stopwords = self.stopwords[0]
-        save_file = './saved_datasets/{}_{}_{}.pt'.format(self.subset, self.segmentation_level, self.setname) #dataset_path + '/' + set + '_' + level + '_IAM.pt'
-        if isfile(save_file) is False:
+        dataset_local_root = Path('./saved_datasets')
+        if not dataset_local_root.is_dir():
+            dataset_local_root.mkdir()
+        save_file = dataset_local_root.joinpath('{}_{}_{}.pt'.format(self.subset, self.segmentation_level, self.setname)) #dataset_path + '/' + set + '_' + level + '_IAM.pt'
+        if Path.is_file(save_file) is False:
             data = self.main_loader(self.subset, self.segmentation_level)
             torch.save(data, save_file)   #Uncomment this in 'release' version
         else:

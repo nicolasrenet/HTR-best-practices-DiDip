@@ -1,7 +1,7 @@
 import numpy as np 
 from skimage import io as img_io
 from utils.word_dataset import WordLineDataset
-from utils.auxilary_functions import image_resize, centered
+from utils.auxiliary_functions import image_resize, centered
 
 class IAMDataset(WordLineDataset):
     def __init__(self, basefolder, subset, segmentation_level, fixed_size, transforms):

@@ -10,14 +10,14 @@ cnn_cfg = [(2, 64), 'M', (4, 128), 'M', (4, 256)]
 
 head_cfg = (256, 3)  # (hidden , num_layers)
 
-#head_type = 'rnn'
+head_type = 'both'
 
 flattening='maxpool'
 #flattening='concat'
 
 stn=False
 
-max_epochs = 240
+max_epochs = 400
 
 batch_size = 20
 level = "line"
@@ -29,3 +29,5 @@ fixed_size = (4 * 32, 4 * 256)
 
 save_path = './saved_models/'
 load_code = None
+
+

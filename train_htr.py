@@ -2,6 +2,8 @@ import argparse
 import logging
 
 import os
+from pathlib import Path
+from time import localtime, strftime
 import numpy as np
 import torch.cuda
 import torch.nn as nn
@@ -12,13 +14,15 @@ cudnn.benchmark = True
 
 
 from utils.iam_dataset import IAMDataset
+from utils.monasterium_dataset import MonasteriumDataset
 from utils.rimes_dataset import RimesDataset
+
 
 from config import *
 
 from models import HTRNet
 
-from utils.auxilary_functions import affine_transformation
+from utils.auxiliary_functions import affine_transformation
 
 import torch.nn.functional as F
 
@@ -43,12 +47,20 @@ parser.add_argument('--dataset', action='store', type=str, default='IAM')
 parser.add_argument('--remove_spaces', action='store_true')
 parser.add_argument('--resize', action='store_true')
 parser.add_argument('--head_layers', action='store', type=int, default=3)
-parser.add_argument('--head_type', action='store', type=str, default='cnn')
+parser.add_argument('--head_type', action='store', type=str, default='both')
+parser.add_argument('--model', action='store', type=str, default=None)
 
 args = parser.parse_args()
 
 gpu_id = args.gpu_id
 logger.info('###########################################')
+
+
+# for storing models
+current_model_path=Path(save_path, strftime("%Y%m%d:%H%M") )
+current_model_path.mkdir(parents=True)
+logger.info("Saving models in %s", current_model_path)
+
 
 # prepare datset loader
 
@@ -56,7 +68,10 @@ logger.info('Loading dataset.')
 
 if args.dataset == 'IAM':
     myDataset = IAMDataset
-    dataset_folder = '/usr/share/datasets_ianos'
+    dataset_folder = '{}/htr/handwriting_datasets'.format( os.environ['HOME'])
+elif args.dataset == 'Monasterium':
+    myDataset = MonasteriumDataset
+    dataset_folder = '{}/htr/handwriting_datasets'.format( os.environ['HOME'])
 elif args.dataset == 'RIMES':
     myDataset = RimesDataset
     dataset_folder = '/usr/share/datasets_ianos'
@@ -66,7 +81,7 @@ else:
 aug_transforms = [lambda x: affine_transformation(x, s=.1)]
 
 
-if args.dataset == 'IAM':
+if args.dataset == 'IAM' or args.dataset =='Monasterium':
     train_set = myDataset(dataset_folder, 'train', level, fixed_size=fixed_size, transforms=aug_transforms)
     classes = train_set.character_classes
     print('# training lines ' + str(train_set.__len__()))
@@ -76,6 +91,7 @@ if args.dataset == 'IAM':
 
     test_set = myDataset(dataset_folder, 'test', level, fixed_size=fixed_size, transforms=None)
     print('# testing lines ' + str(test_set.__len__()))
+    
 elif args.dataset == 'RIMES':
     train_set = myDataset(dataset_folder, 'train', level, fixed_size=fixed_size, character_classes = None, transforms=aug_transforms)
     classes = train_set.character_classes
@@ -105,6 +121,11 @@ if args.head_layers > 0:
 head_type = args.head_type
 
 net = HTRNet(cnn_cfg, head_cfg, len(classes), head=head_type, flattening=flattening, stn=stn)
+
+# load an existing model
+if args.model:
+    net.load_state_dict( torch.load(args.model) )
+
 net.cuda(args.gpu_id)
 
 ctc_loss = lambda y, t, ly, lt: nn.CTCLoss(reduction='sum', zero_infinity=True)(F.log_softmax(y, dim=2), t, ly, lt) /batch_size
@@ -278,6 +299,8 @@ def test_both(epoch, tset='test'):
     cases = ['rnn', 'cnn'] #, 'merge']
     tdecs_list = [np.concatenate(tdecs_rnn), np.concatenate(tdecs_cnn)] #, np.concatenate(tdecs_merge)]
 
+    best_cer = 1.0
+
     for case, tdecs in zip(cases, tdecs_list):
         logger.info('Case: %s', case)
         cer, wer = [], []
@@ -299,14 +322,23 @@ def test_both(epoch, tset='test'):
         cer = sum(cer) / cntc
         wer = sum(wer) / cntw
 
+        if case=='rnn':
+            best_cer = cer
+
         logger.info('CER at epoch %d: %f', epoch, cer)
         logger.info('WER at epoch %d: %f', epoch, wer)
 
     net.train()
 
+    return best_cer
+
 cnt = 1
 logger.info('Training:')
 #test(0)
+
+best_cer=1.0
+cer = 1.0
+
 for epoch in range(1, max_epochs + 1):
 
     train(epoch)
@@ -315,18 +347,24 @@ for epoch in range(1, max_epochs + 1):
     if epoch % 10 == 0:
         if head_type=="both":
             if val_set is not None:
-                test_both(epoch, 'val')
-            test_both(epoch, 'test')
+                _ = test_both(epoch, 'val')
+                cer=test_both(epoch, 'test')
         else:
             if val_set is not None:
                 test(epoch, 'val')
             test(epoch, 'test')
 
+        if cer < best_cer:
+            logger.info('Saving net after %f%% CER improvement', (best_cer - cer)/best_cer*100)
+            best_cer = cer
+            model_path = Path(current_model_path, 'model-{}-{}.pt'.format(epoch,strftime("%Y%m%d:%H%M%S")))
+            torch.save(net.cpu().state_dict(), model_path )
+            net.cuda(gpu_id)
+
     #if epoch % 10 == 0:
     #    logger.info('Saving net after %d epochs', epoch)
     #     torch.save(net.cpu().state_dict(), 'temp.pt')
     #    net.cuda(gpu_id)
-
 
     if 'cos' in args.scheduler:
         if epoch % restart_epochs == 0:
